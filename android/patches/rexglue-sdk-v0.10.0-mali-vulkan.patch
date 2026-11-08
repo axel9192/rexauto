@@ -1,14 +1,14 @@
 diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
 --- a/src/ui/vulkan/vulkan_device.cpp
 +++ b/src/ui/vulkan/vulkan_device.cpp
-@@ -1950,8 +1950,9 @@
+@@ -25,4 +25,4 @@
  REXCVAR_DEFINE_BOOL(vulkan_require_vertex_pipeline_stores_and_atomics, true, "UI/Vulkan",
 -                    "Deprecated and ignored for parity; vertexPipelineStoresAndAtomics is always "
 -                    "required for Vulkan GPU emulation")
-+                    "Require vertexPipelineStoresAndAtomics (experimental: false allows "
-+                    "devices without it; vertex shader memory export may use fallback paths)")
++                    "Require vertexPipelineStoresAndAtomics for Vulkan GPU emulation "
++                    "(experimental: false allows the Android compute memexport fallback)")
      .lifecycle(rex::cvar::Lifecycle::kInitOnly);
-@@ -2102,12 +2103,18 @@
+@@ -108,7 +108,13 @@
      if (!supported_features.vertexPipelineStoresAndAtomics) {
 -      REXLOG_WARN(
 -          "Vulkan device '{}' doesn't support vertexPipelineStoresAndAtomics, which "
@@ -24,18 +24,34 @@ diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
 +      }
 +      REXLOG_WARN(
 +          "Vulkan device '{}' lacks vertexPipelineStoresAndAtomics; continuing with "
-+          "the experimental Android-compatible fallback",
++          "the experimental Android compute memexport fallback",
 +          properties.deviceName);
      }
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
-@@ -3743,10 +3743,12 @@
+@@ -869,6 +869,8 @@
 -  if (!device_properties.vertexPipelineStoresAndAtomics) {
 +  if (!device_properties.vertexPipelineStoresAndAtomics &&
 +      REXCVAR_GET(vulkan_require_vertex_pipeline_stores_and_atomics)) {
      REXGPU_ERROR(
-         "Vulkan vertexPipelineStoresAndAtomics is required for GPU emulation and "
-         "D3D12 parity, but unsupported by the selected device");
+-        "Vulkan vertexPipelineStoresAndAtomics is required for GPU emulation and "
+-        "D3D12 parity, but unsupported by the selected device");
++        "Vulkan vertexPipelineStoresAndAtomics is required for GPU emulation "
++        "(vulkan_require_vertex_pipeline_stores_and_atomics=true), but unsupported by "
++        "the selected device");
      return false;
+   }
+@@ -3437,10 +3439,11 @@
+   bool memexport_used_vertex = vertex_shader->memexport_eM_written() != 0;
+   if (memexport_used_vertex) {
+-    if (!device_properties.vertexPipelineStoresAndAtomics) {
++    if (!device_properties.vertexPipelineStoresAndAtomics &&
++        REXCVAR_GET(vulkan_require_vertex_pipeline_stores_and_atomics)) {
+       REXGPU_ERROR(
+           "Vertex shader memexport draw encountered without "
+           "vertexPipelineStoresAndAtomics support");
+       return false;
+     }
+     draw_util::AddMemExportRanges(regs, *vertex_shader, memexport_ranges_);
    }
