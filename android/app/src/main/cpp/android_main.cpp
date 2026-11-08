@@ -560,10 +560,6 @@ int RunAndroidApp() {
   // title renders nothing. librexgpu-xenos.so ships in the APK; the SDK
   // resolves "xenos" against nativeLibraryDir (SetAndroidApplicationContext).
   args.emplace_back("--gpu_plugin=xenos");
-  // Experimental Mali compatibility: ReXGlue v0.10.0 uses its compute
-  // memexport path when vertexPipelineStoresAndAtomics is unavailable.
-  // This can affect compatibility on titles that depend on vertex memexport.
-  args.emplace_back("--vulkan_require_vertex_pipeline_stores_and_atomics=false");
   // Mobile pacing defaults (all overridable from settings.txt): the guest
   // thread scheduler must not try to pin threads to the 360's 6 hardware
   // threads (we have big.LITTLE and want the kernel to migrate freely), and
@@ -572,9 +568,16 @@ int RunAndroidApp() {
   args.emplace_back("--ignore_thread_priorities=true");
   args.emplace_back("--log_flush_interval=5");  // batch log writes
   for (auto& a : ReadSettingsArgs(external_dir + "/" + kSettingsFileName)) {
+    // This experimental compatibility switch must win over a stale value
+    // persisted by the launcher in settings.txt.
+    if (a.rfind("--vulkan_require_vertex_pipeline_stores_and_atomics=", 0) == 0) {
+      ALOGI("ignoring saved Vulkan feature requirement: %s", a.c_str());
+      continue;
+    }
     ALOGI("setting: %s", a.c_str());
     args.emplace_back(std::move(a));
   }
+  args.emplace_back("--vulkan_require_vertex_pipeline_stores_and_atomics=false");
 
   std::vector<char*> argv_ptrs;
   argv_ptrs.reserve(args.size());
