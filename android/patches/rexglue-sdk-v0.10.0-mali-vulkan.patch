@@ -1,14 +1,16 @@
 diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
 --- a/src/ui/vulkan/vulkan_device.cpp
 +++ b/src/ui/vulkan/vulkan_device.cpp
-@@ -25,4 +25,4 @@
- REXCVAR_DEFINE_BOOL(vulkan_require_vertex_pipeline_stores_and_atomics, true, "UI/Vulkan",
+@@ -25,4 +25,5 @@
+-REXCVAR_DEFINE_BOOL(vulkan_require_vertex_pipeline_stores_and_atomics, true, "UI/Vulkan",
 -                    "Deprecated and ignored for parity; vertexPipelineStoresAndAtomics is always "
 -                    "required for Vulkan GPU emulation")
-+                    "Require vertexPipelineStoresAndAtomics for Vulkan GPU emulation "
-+                    "(experimental: false allows the Android compute memexport fallback)")
++// Android-specific SDK build: enable the experimental Mali compatibility path by default.
++REXCVAR_DEFINE_BOOL(vulkan_require_vertex_pipeline_stores_and_atomics, false, "UI/Vulkan",
++                    "Allow devices without vertexPipelineStoresAndAtomics; vertex shader memory "
++                    "exports are skipped (guest memory writes may be lost)")
      .lifecycle(rex::cvar::Lifecycle::kInitOnly);
-@@ -108,7 +108,13 @@
+@@ -108,7 +109,13 @@
      if (!supported_features.vertexPipelineStoresAndAtomics) {
 -      REXLOG_WARN(
 -          "Vulkan device '{}' doesn't support vertexPipelineStoresAndAtomics, which "
@@ -23,14 +25,21 @@ diff --git a/src/ui/vulkan/vulkan_device.cpp b/src/ui/vulkan/vulkan_device.cpp
 +        return nullptr;
 +      }
 +      REXLOG_WARN(
-+          "Vulkan device '{}' lacks vertexPipelineStoresAndAtomics; continuing with "
-+          "the experimental Android compute memexport fallback",
++          "Vulkan device '{}' lacks vertexPipelineStoresAndAtomics; continuing in "
++          "experimental mode without vertex-shader memory exports",
 +          properties.deviceName);
      }
 diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/command_processor.cpp
 --- a/src/graphics/vulkan/command_processor.cpp
 +++ b/src/graphics/vulkan/command_processor.cpp
-@@ -869,6 +869,8 @@
+@@ -15,5 +15,6 @@
+ #include <mutex>
+ #include <string>
+ #include <string_view>
+ #include <tuple>
++#include <unordered_set>
+ #include <utility>
+@@ -869,6 +870,8 @@
 -  if (!device_properties.vertexPipelineStoresAndAtomics) {
 +  if (!device_properties.vertexPipelineStoresAndAtomics &&
 +      REXCVAR_GET(vulkan_require_vertex_pipeline_stores_and_atomics)) {
@@ -42,16 +51,33 @@ diff --git a/src/graphics/vulkan/command_processor.cpp b/src/graphics/vulkan/com
 +        "the selected device");
      return false;
    }
-@@ -3437,10 +3439,11 @@
+@@ -3437,10 +3440,22 @@
    bool memexport_used_vertex = vertex_shader->memexport_eM_written() != 0;
-   if (memexport_used_vertex) {
+-  if (memexport_used_vertex) {
 -    if (!device_properties.vertexPipelineStoresAndAtomics) {
-+    if (!device_properties.vertexPipelineStoresAndAtomics &&
-+        REXCVAR_GET(vulkan_require_vertex_pipeline_stores_and_atomics)) {
-       REXGPU_ERROR(
-           "Vertex shader memexport draw encountered without "
-           "vertexPipelineStoresAndAtomics support");
-       return false;
-     }
+-      REXGPU_ERROR(
+-          "Vertex shader memexport draw encountered without "
+-          "vertexPipelineStoresAndAtomics support");
+-      return false;
+-    }
++  if (memexport_used_vertex && !device_properties.vertexPipelineStoresAndAtomics) {
++    // The translator drops vertex memory exports when the feature is absent.
++    // Keep the draw, but guest-memory writes from these shaders are lost.
++    static std::mutex skipped_memexport_mutex;
++    static std::unordered_set<uint64_t> skipped_memexport_shaders;
++    bool first_skip;
++    {
++      std::lock_guard<std::mutex> lock(skipped_memexport_mutex);
++      first_skip = skipped_memexport_shaders.insert(vertex_shader->ucode_data_hash()).second;
++    }
++    if (first_skip) {
++      REXGPU_WARN(
++          "Vertex shader {:016X} uses memory export, skipped without "
++          "vertexPipelineStoresAndAtomics support (experimental; guest memory writes dropped)",
++          vertex_shader->ucode_data_hash());
++    }
++    memexport_used_vertex = false;
++  }
++  if (memexport_used_vertex) {
      draw_util::AddMemExportRanges(regs, *vertex_shader, memexport_ranges_);
    }
