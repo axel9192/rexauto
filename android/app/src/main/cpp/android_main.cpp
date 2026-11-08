@@ -554,18 +554,16 @@ int RunAndroidApp() {
   // coherency. Everything below can be overridden by settings.txt.
   args.emplace_back("--clear_memory_page_state=false");
   args.emplace_back("--fullscreen=true");
-  // Experimental Mali compatibility: ReXGlue uses its compute fallback when
-  // vertexPipelineStoresAndAtomics is unavailable. This does not emulate the
-  // missing Vulkan feature; it allows the fallback path to be selected.
-  args.emplace_back("--vulkan_require_vertex_pipeline_stores_and_atomics=false");
-  // Mali drivers may also lack non-solid polygon fill; ReXGlue has a solid-fill fallback.
-  args.emplace_back("--vulkan_require_fill_mode_non_solid=false");
   // GPU emulation plugin. On Windows the rexauto SDK auto-discovers
   // rexgpu-*.dll beside the exe; on Android there is no such scan, and without
   // it the kernel logs "no GPU emulation loaded (gpu_plugin not set)" and the
   // title renders nothing. librexgpu-xenos.so ships in the APK; the SDK
   // resolves "xenos" against nativeLibraryDir (SetAndroidApplicationContext).
   args.emplace_back("--gpu_plugin=xenos");
+  // Experimental Mali compatibility: ReXGlue v0.10.0 uses its compute
+  // memexport path when vertexPipelineStoresAndAtomics is unavailable.
+  // This can affect compatibility on titles that depend on vertex memexport.
+  args.emplace_back("--vulkan_require_vertex_pipeline_stores_and_atomics=false");
   // Mobile pacing defaults (all overridable from settings.txt): the guest
   // thread scheduler must not try to pin threads to the 360's 6 hardware
   // threads (we have big.LITTLE and want the kernel to migrate freely), and
